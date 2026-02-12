@@ -22,6 +22,10 @@ public class NewsletterPOMTest {
     @BeforeEach
     void setup() {
         ChromeOptions options = new ChromeOptions();
+        // Use headless mode in CI, normal mode locally
+        if (System.getenv("CI") != null) {
+            options.addArguments("--headless");
+        }
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         driver = new ChromeDriver(options);
@@ -35,7 +39,7 @@ public class NewsletterPOMTest {
     @DisplayName("Verify newsletter page loads with correct heading")
     void testPageLoadsWithHeading() throws InterruptedException {
         Assertions.assertEquals("Stay updated!", newsletterPage.getHeading());
-        Thread.sleep(5000);
+        if (System.getenv("CI") == null) Thread.sleep(5000);
     }
 
     @Test
@@ -45,7 +49,7 @@ public class NewsletterPOMTest {
         newsletterPage.clickSubscribe();
         Assertions.assertTrue(newsletterPage.isErrorMessageDisplayed());
         Assertions.assertEquals("Valid email required", newsletterPage.getErrorMessage());
-        Thread.sleep(5000);
+        if (System.getenv("CI") == null) Thread.sleep(5000);
     }
 
     @Test
@@ -56,14 +60,16 @@ public class NewsletterPOMTest {
         SuccessPage successPage = new SuccessPage(driver);
         Assertions.assertTrue(successPage.isSuccessIconDisplayed());
         Assertions.assertTrue(successPage.getSuccessHeading().contains("Thanks for subscribing!"));
-        Thread.sleep(5000);
+        if (System.getenv("CI") == null) Thread.sleep(5000);
     }
 
     @AfterEach
     void teardown() {
-        // Browser stays open - comment out driver.quit()
-        // if (driver != null) {
-        //     driver.quit();
-        // }
+        // Close browser in CI, keep open locally
+        if (System.getenv("CI") != null) {
+            if (driver != null) {
+                driver.quit();
+            }
+        }
     }
 }

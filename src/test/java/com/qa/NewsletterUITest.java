@@ -19,6 +19,10 @@ public class NewsletterUITest {
     @BeforeEach
     void setup() {
         ChromeOptions options = new ChromeOptions();
+        // Use headless mode in CI, normal mode locally
+        if (System.getenv("CI") != null) {
+            options.addArguments("--headless");
+        }
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         driver = new ChromeDriver(options);
@@ -32,14 +36,16 @@ public class NewsletterUITest {
         driver.get(BASE_URL);
         Assertions.assertNotNull(driver.getTitle());
         Assertions.assertTrue(driver.getCurrentUrl().contains("newsletter-sign-up-form"));
-        Thread.sleep(5000);
+        if (System.getenv("CI") == null) Thread.sleep(5000);
     }
 
     @AfterEach
     void teardown() {
-        // Browser stays open - comment out driver.quit()
-        // if (driver != null) {
-        //     driver.quit();
-        // }
+        // Close browser in CI, keep open locally
+        if (System.getenv("CI") != null) {
+            if (driver != null) {
+                driver.quit();
+            }
+        }
     }
 }
