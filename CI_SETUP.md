@@ -2,47 +2,31 @@
 
 ## GitHub Actions Configuration
 
-This project includes two CI workflows:
+This project uses a CI pipeline that automatically runs tests and sends email notifications.
 
-### 1. Basic CI Pipeline (`ci.yml`)
+### Workflow Features (`ci.yml`)
 - Triggers on push/PR to main, master, or develop branches
 - Runs all Selenium tests
-- Uploads test reports as artifacts
+- Uploads test reports as artifacts (30-day retention)
+- Sends email notifications on pass/fail
 - Shows build status in GitHub Actions summary
 
-### 2. CI with Notifications (`ci-with-notifications.yml`)
-- All features from basic CI
-- Email notifications
-- Slack notifications
+## Setting Up Email Notifications
 
-## Setting Up Notifications
+### Step 1: Create Gmail App Password
 
-### Email Notifications Setup
-
-1. Go to your GitHub repository → Settings → Secrets and variables → Actions
-2. Add the following secrets:
-   - `EMAIL_USERNAME`: Your Gmail address
-   - `EMAIL_PASSWORD`: Gmail app password (not your regular password)
-   - `EMAIL_TO`: Recipient email address
-
-**To create Gmail App Password:**
 1. Enable 2-factor authentication on your Google account
 2. Go to https://myaccount.google.com/apppasswords
 3. Generate a new app password for "Mail"
-4. Use this password in `EMAIL_PASSWORD` secret
+4. Copy the generated password
 
-### Slack Notifications Setup
+### Step 2: Add GitHub Secrets
 
-1. Create a Slack Incoming Webhook:
-   - Go to https://api.slack.com/apps
-   - Create a new app or select existing
-   - Enable "Incoming Webhooks"
-   - Add webhook to your workspace
-   - Copy the webhook URL
-
-2. Add to GitHub Secrets:
-   - Go to repository Settings → Secrets and variables → Actions
-   - Add secret: `SLACK_WEBHOOK_URL` with your webhook URL
+1. Go to your GitHub repository → Settings → Secrets and variables → Actions
+2. Click "New repository secret" and add:
+   - **Name**: `EMAIL_USERNAME` | **Value**: Your Gmail address
+   - **Name**: `EMAIL_PASSWORD` | **Value**: Gmail app password from Step 1
+   - **Name**: `EMAIL_TO` | **Value**: Recipient email address
 
 ## Workflow Features
 
@@ -51,8 +35,7 @@ This project includes two CI workflows:
 - ✅ Test report generation
 - ✅ Artifact upload (30-day retention)
 - ✅ Detailed execution logs
-- ✅ Build status notifications
-- ✅ Email/Slack alerts on pass/fail
+- ✅ Email alerts on pass/fail with build details
 
 ## Viewing Test Results
 
