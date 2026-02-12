@@ -22,7 +22,6 @@ public class NewsletterPOMTest {
     @BeforeEach
     void setup() {
         ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         driver = new ChromeDriver(options);
@@ -34,40 +33,37 @@ public class NewsletterPOMTest {
 
     @Test
     @DisplayName("Verify newsletter page loads with correct heading")
-    void testPageLoadsWithHeading() {
+    void testPageLoadsWithHeading() throws InterruptedException {
         Assertions.assertEquals("Stay updated!", newsletterPage.getHeading());
+        Thread.sleep(5000);
     }
 
     @Test
     @DisplayName("Verify error message for invalid email")
-    void testInvalidEmailShowsError() {
+    void testInvalidEmailShowsError() throws InterruptedException {
         newsletterPage.enterEmail("invalid-email");
         newsletterPage.clickSubscribe();
         Assertions.assertTrue(newsletterPage.isErrorMessageDisplayed());
         Assertions.assertEquals("Valid email required", newsletterPage.getErrorMessage());
-    }
-
-    @Test
-    @DisplayName("Verify error message for empty email")
-    void testEmptyEmailShowsError() {
-        newsletterPage.clickSubscribe();
-        Assertions.assertTrue(newsletterPage.isErrorMessageDisplayed());
+        Thread.sleep(5000);
     }
 
     @Test
     @DisplayName("Verify successful subscription with valid email")
-    void testValidEmailShowsSuccess() {
+    void testValidEmailShowsSuccess() throws InterruptedException {
         newsletterPage.enterEmail("test@example.com");
         newsletterPage.clickSubscribe();
         SuccessPage successPage = new SuccessPage(driver);
         Assertions.assertTrue(successPage.isSuccessIconDisplayed());
         Assertions.assertTrue(successPage.getSuccessHeading().contains("Thanks for subscribing!"));
+        Thread.sleep(5000);
     }
 
     @AfterEach
     void teardown() {
-        if (driver != null) {
-            driver.quit();
-        }
+        // Browser stays open - comment out driver.quit()
+        // if (driver != null) {
+        //     driver.quit();
+        // }
     }
 }

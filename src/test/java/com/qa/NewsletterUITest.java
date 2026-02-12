@@ -19,7 +19,6 @@ public class NewsletterUITest {
     @BeforeEach
     void setup() {
         ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
         driver = new ChromeDriver(options);
@@ -29,16 +28,18 @@ public class NewsletterUITest {
 
     @Test
     @DisplayName("Verify newsletter page loads successfully")
-    void testNewsletterPageLoads() {
+    void testNewsletterPageLoads() throws InterruptedException {
         driver.get(BASE_URL);
         Assertions.assertNotNull(driver.getTitle());
         Assertions.assertTrue(driver.getCurrentUrl().contains("newsletter-sign-up-form"));
+        Thread.sleep(5000);
     }
 
     @AfterEach
     void teardown() {
-        if (driver != null) {
-            driver.quit();
-        }
+        // Browser stays open - comment out driver.quit()
+        // if (driver != null) {
+        //     driver.quit();
+        // }
     }
 }

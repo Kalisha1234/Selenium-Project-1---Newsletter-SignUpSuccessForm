@@ -39,7 +39,11 @@ public class NewsletterPage {
     }
 
     public boolean isErrorMessageDisplayed() {
-        return errorMessage.isDisplayed() && !errorMessage.getText().isEmpty();
+        try {
+            return errorMessage.isDisplayed() && !errorMessage.getText().isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public String getErrorMessage() {
