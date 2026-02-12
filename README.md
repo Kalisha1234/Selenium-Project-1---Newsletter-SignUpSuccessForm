@@ -10,6 +10,12 @@
 - **WebDriverManager**: Automatic ChromeDriver management
 - **JUnit 5**: Testing framework
 
+## Website Under Test
+
+This project tests the Newsletter Sign-up Form application.
+- **Live URL**: https://newsletter-sign-up-form-ntes.onrender.com/
+- **Source Code**: https://github.com/Kalisha1234/Newsletter-sign-up-form-.git
+
 ## Setup Steps
 
 1. Navigate to the selenium-project directory:
