@@ -9,6 +9,7 @@ import java.time.Duration;
 
 public class NewsletterUITest {
     private WebDriver driver;
+    private static final String BASE_URL = "https://newsletter-sign-up-form-ntes.onrender.com/";
 
     @BeforeAll
     static void setupClass() {
@@ -27,11 +28,11 @@ public class NewsletterUITest {
     }
 
     @Test
-    void testNewsletterPageLoads() throws InterruptedException {
-        String filePath = "file:///" + System.getProperty("user.dir").replace("\\", "/") + "/../index.html";
-        driver.get(filePath);
-        Assertions.assertEquals("Document", driver.getTitle());
-        Thread.sleep(3000);
+    @DisplayName("Verify newsletter page loads successfully")
+    void testNewsletterPageLoads() {
+        driver.get(BASE_URL);
+        Assertions.assertNotNull(driver.getTitle());
+        Assertions.assertTrue(driver.getCurrentUrl().contains("newsletter-sign-up-form"));
     }
 
     @AfterEach

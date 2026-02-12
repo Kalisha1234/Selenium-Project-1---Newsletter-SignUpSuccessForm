@@ -14,7 +14,7 @@
 
 1. Navigate to the selenium-project directory:
 ```bash
-cd selenium-project
+cd selenium-newsletter-test
 ```
 
 2. Install dependencies:
@@ -27,11 +27,32 @@ mvn clean install
 mvn test
 ```
 
+## Project Structure
+
+```
+selenium-newsletter-test/
+├── src/
+│   ├── main/java/com/qa/pages/
+│   │   ├── NewsletterPage.java    # Newsletter form page object
+│   │   └── SuccessPage.java       # Success message page object
+│   └── test/java/com/qa/
+│       ├── NewsletterPOMTest.java # Page Object Model tests
+│       └── NewsletterUITest.java  # Basic UI tests
+├── .github/workflows/
+│   ├── ci.yml                     # Basic CI pipeline
+│   └── ci-with-notifications.yml  # CI with email/Slack alerts
+├── pom.xml
+├── README.md
+└── CI_SETUP.md                    # CI configuration guide
+```
+
 ## How It Works
 
 - **WebDriverManager** automatically downloads and configures ChromeDriver
 - No manual ChromeDriver download needed
-- Tests run against the local HTML files
+- Tests run against live URL: https://newsletter-sign-up-form-ntes.onrender.com/
+- **Page Object Model (POM)** pattern for maintainable test code
+- **Page Factory** pattern for element initialization
 
 ## Test Structure
 
@@ -39,3 +60,35 @@ mvn test
 - `@BeforeEach`: Initializes browser before each test
 - `@Test`: Test methods
 - `@AfterEach`: Closes browser after each test
+
+## Test Cases
+
+1. **Page Load Test**: Verifies newsletter page loads correctly
+2. **Heading Test**: Validates "Stay updated!" heading
+3. **Invalid Email Test**: Checks error message for invalid email
+4. **Empty Email Test**: Validates error for empty submission
+5. **Valid Email Test**: Confirms successful subscription flow
+
+## CI/CD Pipeline
+
+GitHub Actions automatically:
+- Installs dependencies
+- Runs all tests on push/PR
+- Generates test reports
+- Sends notifications (email/Slack)
+- Uploads artifacts
+
+See [CI_SETUP.md](CI_SETUP.md) for notification configuration.
+
+## Running Tests Locally
+
+```bash
+# Run all tests
+mvn test
+
+# Run specific test class
+mvn test -Dtest=NewsletterPOMTest
+
+# Run with verbose output
+mvn test -X
+```
