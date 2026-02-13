@@ -56,6 +56,7 @@ public class NewsletterPOMTest {
     @DisplayName("Verify successful subscription with valid email")
     void testValidEmailShowsSuccess() throws InterruptedException {
         newsletterPage.enterEmail("test@example.com");
+        if (System.getenv("CI") == null) Thread.sleep(3000);
         newsletterPage.clickSubscribe();
         SuccessPage successPage = new SuccessPage(driver);
         Assertions.assertTrue(successPage.isSuccessIconDisplayed());
