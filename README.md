@@ -45,10 +45,12 @@ selenium-newsletter-test/
 │       ├── NewsletterPOMTest.java # Page Object Model tests
 │       └── NewsletterUITest.java  # Basic UI tests
 ├── .github/workflows/
-│   └── ci.yml                     # CI pipeline with email notifications
+│   ├── ci.yml                     # CI pipeline with email notifications
+│   └── ci-with-slack.yml          # CI with email and Slack notifications
 ├── pom.xml
 ├── README.md
-└── CI_SETUP.md                    # CI configuration guide
+├── CI_SETUP.md                    # Email notification setup guide
+└── SLACK_SETUP.md                 # Slack notification setup guide
 ```
 
 ## How It Works
@@ -81,9 +83,16 @@ GitHub Actions automatically:
 - Runs all tests on push/PR
 - Generates test reports
 - Sends email notifications
+- Sends Slack notifications
 - Uploads artifacts
 
-See [CI_SETUP.md](CI_SETUP.md) for email notification configuration.
+### Workflow Files
+
+- **ci.yml**: Basic pipeline with email notifications
+- **ci-with-slack.yml**: Pipeline with both email and Slack notifications
+
+See [CI_SETUP.md](CI_SETUP.md) for email configuration.
+See [SLACK_SETUP.md](SLACK_SETUP.md) for Slack configuration.
 
 ## Running Tests Locally
 
