@@ -2,9 +2,9 @@ name: Selenium CI Pipeline
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main]
 
 jobs:
   test:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Run Selenium tests
         run: mvn test
-        continue-on-error: true
+        #continue-on-error: true
 
       - name: Upload test reports
         if: always()
