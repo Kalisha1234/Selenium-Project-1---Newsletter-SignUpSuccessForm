@@ -1,4 +1,4 @@
-name: Selenium CI Pipeline
+name: Selenium CI with Email and Slack
 
 on:
   push:
@@ -35,6 +35,23 @@ jobs:
           name: test-reports
           path: target/surefire-reports/
           retention-days: 30
+
+      - name: Send Slack notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            *Selenium Test Results*
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Status: ${{ job.status }}
+            
+            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: Send email notification
         if: always()
