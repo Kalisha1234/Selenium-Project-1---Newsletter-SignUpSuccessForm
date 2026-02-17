@@ -45,7 +45,8 @@ public class NewsletterPOMTest {
     @Test
     @DisplayName("Verify error message for invalid email")
     void testInvalidEmailShowsError() throws InterruptedException {
-        newsletterPage.enterEmail("invalid-email");
+        //newsletterPage.enterEmail("invalid-email");
+        newsletterPage.enterEmail("bernison@gmail.com");
         newsletterPage.clickSubscribe();
         Assertions.assertTrue(newsletterPage.isErrorMessageDisplayed());
         Assertions.assertEquals("Valid email required", newsletterPage.getErrorMessage());
