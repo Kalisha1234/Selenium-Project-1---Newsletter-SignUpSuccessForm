@@ -2,9 +2,11 @@ name: Selenium CI with Email and Slack
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main]
+
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main]
+
 
 jobs:
   test:
