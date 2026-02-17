@@ -38,7 +38,7 @@ public class NewsletterPOMTest {
     @Test
     @DisplayName("Verify newsletter page loads with correct heading")
     void testPageLoadsWithHeading() throws InterruptedException {
-        Assertions.assertEquals("Wrong updated!", newsletterPage.getHeading());
+        Assertions.assertEquals("Stay updated!", newsletterPage.getHeading());
         if (System.getenv("CI") == null) Thread.sleep(5000);
     }
 
