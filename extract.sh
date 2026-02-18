@@ -20,3 +20,7 @@ echo "--- Test Failure Summary ---"
 echo "Error Name: $ERROR_TYPE"
 echo "Expected:   $EXPECTED"
 echo "Actual:     $ACTUAL"
+
+echo "TEST_ERROR_TYPE=$ERROR_TYPE" >> $GITHUB_ENV
+echo "TEST_EXPECTED=$EXPECTED" >> $GITHUB_ENV
+echo "TEST_ACTUAL=$ACTUAL" >> $GITHUB_ENV

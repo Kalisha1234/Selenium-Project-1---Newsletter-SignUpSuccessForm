@@ -33,7 +33,7 @@ jobs:
 
       - name: Use the extracted values
         run: |
-          echo "The expected value was $EXPECTED"
+          echo "The expected value was $TEST_EXPECTED"
           echo "The actual value was $ACTUAL"
 
       - name: Upload test reports
@@ -58,7 +58,7 @@ jobs:
             Workflow: ${{ github.workflow }}
             
             Error: $ERROR_TYPE
-            Expected: ${{ env.EXPECTED }}
+            Expected: $TEST_EXPECTED
             Actual: ${{ env.ACTUAL }}
 
             View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
