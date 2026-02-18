@@ -1,3 +1,4 @@
+
 package com.qa;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
@@ -13,6 +14,7 @@ public class NewsletterUITest {
     private WebDriver driver;
     private static final String BASE_URL = "https://newsletter-sign-up-form-ntes.onrender.com/";
     private static final Logger logger = LoggerFactory.getLogger(NewsletterUITest.class);
+    private static final boolean IS_CI = System.getenv("CI") != null;
 
     @BeforeAll
     static void setupClass() {
@@ -23,7 +25,7 @@ public class NewsletterUITest {
     void setup() {
         logger.info("Setting up ChromeDriver...");
         ChromeOptions options = new ChromeOptions();
-        if (System.getenv("CI") != null) {
+        if (IS_CI) {
             options.addArguments("--headless");
             options.addArguments("--window-size=1920,1080");
             logger.info("Running in headless mode (CI environment detected)");
@@ -51,6 +53,7 @@ public class NewsletterUITest {
         Assertions.assertTrue(currentUrl.contains("newsletter-sign-up-form"),
                 "Expected URL to contain 'newsletter-sign-up-form' but got: '" + currentUrl + "'");
         logger.info("[TEST] testNewsletterPageLoads - PASSED");
+        pauseIfLocal();
     }
 
     @AfterEach
@@ -58,6 +61,16 @@ public class NewsletterUITest {
         if (driver != null) {
             driver.quit();
             logger.info("WebDriver closed.");
+        }
+    }
+
+    private void pauseIfLocal() {
+        if (!IS_CI) {
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }
