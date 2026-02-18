@@ -25,11 +25,11 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        run: mvn test --batch-mode 2>&1 | tee test-output.log
+        run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
       - name: Extract test results
-        run: source test-output.log
+        run:  source extract.sh
 
       - name: Upload test reports
         if: always()

@@ -24,3 +24,5 @@ Thumbs.db
 # Selenium
 *.log
 screenshots/
+
+output.log
