@@ -31,6 +31,11 @@ jobs:
       - name: Extract test results
         run:  source extract.sh
 
+      - name: Use the extracted values
+        run: |
+          echo "The expected value was $EXPECTED"
+          echo "The actual value was $ACTUAL"
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,7 +57,7 @@ jobs:
             Status: ${{ job.status }}
             Workflow: ${{ github.workflow }}
             
-            Error: ${{ env.ERROR_TYPE }}
+            Error: $ERROR_TYPE
             Expected: ${{ env.EXPECTED }}
             Actual: ${{ env.ACTUAL }}
 
