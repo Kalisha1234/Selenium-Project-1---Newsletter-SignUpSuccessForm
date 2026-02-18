@@ -1,4 +1,3 @@
-
 package com.qa;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
