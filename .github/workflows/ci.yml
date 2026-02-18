@@ -1,3 +1,83 @@
+#name: Selenium CI with Email and Slack
+#
+#on:
+#  push:
+#    branches: [ main ]
+#  pull_request:
+#    branches: [ main ]
+#
+#jobs:
+#  test:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v3
+#
+#      - name: Set up JDK 11
+#        uses: actions/setup-java@v3
+#        with:
+#          java-version: '11'
+#          distribution: 'temurin'
+#          cache: maven
+#
+#      - name: Install dependencies
+#        run: mvn clean install -DskipTests --batch-mode
+#
+#      - name: Run Selenium tests
+#        run: mvn test --batch-mode
+#        continue-on-error: true
+#
+#      - name: Upload test reports
+#        if: always()
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: test-reports
+#          path: target/surefire-reports/
+#          retention-days: 30
+#
+#      - name: Send Slack notification
+#        if: always()
+#        uses: 8398a7/action-slack@v3
+#        with:
+#          status: ${{ job.status }}
+#          text: |
+#            *Selenium Test Results*
+#            Repository: ${{ github.repository }}
+#            Branch: ${{ github.ref_name }}
+#            Commit: ${{ github.sha }}
+#            Status: ${{ job.status }}
+#
+#            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+#        env:
+#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#
+#      - name: Send email notification
+#        if: always()
+#        uses: dawidd6/action-send-mail@v3
+#        with:
+#          server_address: smtp.gmail.com
+#          server_port: 465
+#          username: ${{ secrets.EMAIL_USERNAME }}
+#          password: ${{ secrets.EMAIL_PASSWORD }}
+#          subject: "Selenium Tests ${{ job.status }} - ${{ github.repository }}"
+#          body: |
+#            Build Status: ${{ job.status }}
+#            Repository: ${{ github.repository }}
+#            Branch: ${{ github.ref }}
+#            Commit: ${{ github.sha }}
+#            Workflow: ${{ github.workflow }}
+#            Run: ${{ github.run_number }}
+#
+#            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#          to: ${{ secrets.EMAIL_TO }}
+#          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+#
+#      - name: Fail workflow if tests failed
+#        if: failure()
+#        run: exit 1
+
 name: Selenium CI with Email and Slack
 
 on:
@@ -21,59 +101,197 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Install dependencies
+      - name: Install system dependencies for Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+
+      - name: Install Maven dependencies
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        run: mvn test --batch-mode
+        id: run_tests
+        env:
+          CI: "true"
+        run: |
+          # Run tests with batch mode for clean CI output. continue-on-error so we can
+          # capture results before deciding whether to notify.
+          mvn test --batch-mode 2>&1 | tee test-output.log
+          echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
         continue-on-error: true
+
+      - name: Parse test results
+        id: parse_results
+        if: always()
+        run: |
+          # Extract summary line from surefire plain text reports
+          FAILURES=""
+          ERRORS=""
+
+          # Parse each surefire .txt report for failures/errors
+          if [ -d "target/surefire-reports" ]; then
+            for f in target/surefire-reports/*.txt; do
+              [ -f "$f" ] || continue
+              # Grab test class name from filename
+              CLASS=$(basename "$f" .txt)
+              # Look for lines like: FAILED testName(className)
+              while IFS= read -r line; do
+                if [[ "$line" == *"FAILED"* ]] || [[ "$line" == *"ERROR"* ]]; then
+                  FAILURES="${FAILURES}  - ${line}%0A"
+                fi
+              done < "$f"
+            done
+          fi
+
+          # Grab the overall summary from Maven output
+          if [ -f "test-output.log" ]; then
+            SUMMARY=$(grep -E "Tests run:|BUILD" test-output.log | tail -5 || echo "No summary available")
+          else
+            SUMMARY="No test output log found"
+          fi
+
+          # Determine overall status
+          if [ -f "test-output.log" ] && grep -q "BUILD SUCCESS" test-output.log; then
+            echo "STATUS=success" >> $GITHUB_OUTPUT
+          else
+            echo "STATUS=failure" >> $GITHUB_OUTPUT
+          fi
+
+          # Save failures and summary for notification steps
+          {
+            echo "SUMMARY<<EOF"
+            echo "$SUMMARY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          # Build failure detail block
+          FAIL_DETAIL=""
+          if [ -d "target/surefire-reports" ]; then
+            for f in target/surefire-reports/*.txt; do
+              [ -f "$f" ] || continue
+              CLASS=$(basename "$f" .txt)
+              # Check if this class had failures
+              if grep -qE "<<< FAILURE|<<< ERROR" "$f" 2>/dev/null || grep -q "FAILED" "$f" 2>/dev/null; then
+                FAIL_DETAIL="${FAIL_DETAIL}--- ${CLASS} ---%0A"
+                # Extract relevant failure block (test name + assertion error)
+                FAIL_DETAIL="${FAIL_DETAIL}$(grep -A 5 -E "FAILED|<<< FAILURE|<<< ERROR|AssertionError|Expected|but was" "$f" | head -30)%0A"
+              fi
+            done
+          fi
+
+          if [ -z "$FAIL_DETAIL" ] && [ -f "test-output.log" ] && grep -q "BUILD FAILURE" test-output.log; then
+            # Fallback: grab last 40 lines of Maven output if no surefire reports found
+            FAIL_DETAIL=$(tail -40 test-output.log)
+          fi
+
+          {
+            echo "FAIL_DETAIL<<EOF"
+            echo "$FAIL_DETAIL"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: target/surefire-reports/
+          path: |
+            target/surefire-reports/
+            test-output.log
           retention-days: 30
 
-      - name: Send Slack notification
-        if: always()
+      # ── SLACK: only on FAILURE ──────────────────────────────────────────────
+      - name: Send Slack notification on failure
+        if: steps.parse_results.outputs.STATUS == 'failure'
         uses: 8398a7/action-slack@v3
         with:
-          status: ${{ job.status }}
+          status: failure
           text: |
-            *Selenium Test Results*
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Status: ${{ job.status }}
-            
-            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            :x: *Selenium Tests FAILED*
+            *Repository:* ${{ github.repository }}
+            *Branch:* ${{ github.ref_name }}
+            *Commit:* ${{ github.sha }}
+            *Workflow:* ${{ github.workflow }} | Run #${{ github.run_number }}
+
+            *Failed Tests:*
+            ```
+            ${{ steps.parse_results.outputs.FAIL_DETAIL }}
+            ```
+
+            :mag: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full logs>
           webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Send email notification
-        if: always()
+      # ── SLACK: only on SUCCESS ──────────────────────────────────────────────
+      - name: Send Slack notification on success
+        if: steps.parse_results.outputs.STATUS == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            :white_check_mark: *Selenium Tests PASSED*
+            *Repository:* ${{ github.repository }}
+            *Branch:* ${{ github.ref_name }}
+            *Commit:* ${{ github.sha }}
+            *Workflow:* ${{ github.workflow }} | Run #${{ github.run_number }}
+
+            <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      # ── EMAIL: only on FAILURE ──────────────────────────────────────────────
+      - name: Send email notification on failure
+        if: steps.parse_results.outputs.STATUS == 'failure'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Selenium Tests ${{ job.status }} - ${{ github.repository }}"
+          subject: "❌ Selenium Tests FAILED - ${{ github.repository }}"
           body: |
-            Build Status: ${{ job.status }}
+            Build Status: FAILED
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref }}
             Commit: ${{ github.sha }}
             Workflow: ${{ github.workflow }}
             Run: ${{ github.run_number }}
-            
+
+            ── FAILED TESTS ──────────────────────────────
+            ${{ steps.parse_results.outputs.FAIL_DETAIL }}
+
+            ── MAVEN SUMMARY ─────────────────────────────
+            ${{ steps.parse_results.outputs.SUMMARY }}
+
+            View full logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          to: ${{ secrets.EMAIL_TO }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+
+      # ── EMAIL: only on SUCCESS ──────────────────────────────────────────────
+      - name: Send email notification on success
+        if: steps.parse_results.outputs.STATUS == 'success'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "✅ Selenium Tests PASSED - ${{ github.repository }}"
+          body: |
+            Build Status: success
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.run_number }}
+
             View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
 
+      # ── Fail the job if tests failed (so GitHub marks the run red) ──────────
       - name: Fail workflow if tests failed
-        if: failure()
+        if: steps.parse_results.outputs.STATUS == 'failure'
         run: exit 1
