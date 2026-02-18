@@ -53,8 +53,7 @@ jobs:
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
           text: |
             *Selenium Test Results*
-            *Test Result:*: ${ env.TEST_STATUS }
-            *Status:* ${{ job.status }}
+            *Test Results:*: ${{ env.TEST_STATUS }}
             *Error:* ${{ env.ERROR_TYPE }}
             *Expected:* `${{ env.EXPECTED }}`
             *Actual:* `${{ env.ACTUAL }}`
