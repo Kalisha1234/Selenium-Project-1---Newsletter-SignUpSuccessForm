@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Updated to v4
+        uses: actions/checkout@v4
 
       - name: Set up JDK 11
-        uses: actions/setup-java@v4 # Updated to v4
+        uses: actions/setup-java@v4
         with:
           java-version: '11'
           distribution: 'temurin'
@@ -25,24 +25,31 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        # We use 'tee' to see logs in console AND save to file
+        # Using 'tee' to capture the log for parsing while still showing it in the console
         run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
       - name: Extract test results
         id: extract_step
-        run:  |
+        run: |
           LOG_FILE="output.log"
-          # Extract and handle potential empty values
-          ERROR_TYPE=$(grep -m 1 -oE "[a-zA-Z0-9\.]+(Error|Exception)" "$LOG_FILE" || echo "None")
-          EXPECTED=$(sed -n 's/.*expected: <\(.*\)> but was.*/\1/p' "$LOG_FILE" | head -n 1 || echo "N/A")
-          ACTUAL=$(sed -n 's/.*but was: <\(.*\)>/\1/p' "$LOG_FILE" | head -n 1 || echo "N/A")
-          TEST_STATUS=$(grep -m 1 -oE "Tests run: [0-9]+, Failures: [0-9]+, Errors: [0-9]+" "$LOG_FILE" || echo "No test summary found")
           
-          # Push to GITHUB_ENV for use in later steps
-          echo "ERROR_TYPE=$ERROR_TYPE" >> $GITHUB_ENV
-          echo "EXPECTED=$EXPECTED" >> $GITHUB_ENV
-          echo "ACTUAL=$ACTUAL" >> $GITHUB_ENV
+          # 1. Extract which test is failing (e.g., com.qa.NewsletterPOMTest.testPageLoadsWithHeading)
+          FAILING_TEST=$(grep "<<< FAILURE! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
+          
+          # 2. Extract the specific file and line number from the stack trace
+          FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
+          
+          # 3. Extract the failure reason (Assertion message)
+          FAILURE_REASON=$(grep "AssertionFailedError:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //' || echo "N/A")
+          
+          # 4. Extract the general summary (Tests run, Failures, etc.)
+          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
+          
+          # Export to GITHUB_ENV for subsequent steps
+          echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
+          echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
+          echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
           echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
 
       - name: Send Slack notification
@@ -52,13 +59,13 @@ jobs:
           status: ${{ job.status }}
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
           text: |
-            *Selenium Test Results*
-            *Test Results:*: ${{ env.TEST_STATUS }}
-            *Error:* ${{ env.ERROR_TYPE }}
-            *Expected:* `${{ env.EXPECTED }}`
-            *Actual:* `${{ env.ACTUAL }}`
+            *Selenium Test Results Summary:*
+            *Status:* `${{ env.TEST_STATUS }}`
+            *Failing Test:* `${{ env.FAILING_TEST }}`
+            *File/Line:* `${{ env.FAILING_FILE }}`
+            *Reason:* `${{ env.FAILURE_REASON }}`
             
-            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
@@ -70,16 +77,18 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Selenium Tests ${{ job.status }} - ${{ github.repository }}"
+          subject: "Selenium Tests Failed - ${{ github.repository }}"
           body: |
             Build Status: ${{ job.status }}
             
             Test Details:
-            - Error: ${{ env.ERROR_TYPE }}
-            - Expected: ${{ env.EXPECTED }}
-            - Actual: ${{ env.ACTUAL }}
+            - Summary: ${{ env.TEST_STATUS }}
+            - Failing Test: ${{ env.FAILING_TEST }}
+            - File/Line: ${{ env.FAILING_FILE }}
+            - Reason: ${{ env.FAILURE_REASON }}
 
-            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            You can view the full execution here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
 
@@ -91,6 +100,8 @@ jobs:
           path: target/surefire-reports/
 
       - name: Fail workflow if tests failed
-        # This checks if the 'mvn test' step actually failed earlier
-        if: steps.extract_step.outcome == 'failure' || contains(env.ERROR_TYPE, 'Error')
+        # This ensures the pipeline actually shows as 'failed' in GitHub if any tests were unsuccessful
+        if: |
+          !contains(env.TEST_STATUS, 'Failures: 0') ||
+          !contains(env.TEST_STATUS, 'Errors: 0')
         run: exit 1
