@@ -21,11 +21,18 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Install dependencies
+      - name: Install system dependencies for Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+
+      - name: Install Maven dependencies
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
         id: run_tests
+        env:
+          CI: "true"
         run: |
           # Run tests with batch mode for clean CI output. continue-on-error so we can
           # capture results before deciding whether to notify.
@@ -40,60 +47,68 @@ jobs:
           # Extract summary line from surefire plain text reports
           FAILURES=""
           ERRORS=""
-          TESTS_RUN=0
-          TESTS_FAILED=0
-          TESTS_ERRORS=0
-          TESTS_SKIPPED=0
-
+          
           # Parse each surefire .txt report for failures/errors
-          for f in target/surefire-reports/*.txt; do
-            [ -f "$f" ] || continue
-            # Grab test class name from filename
-            CLASS=$(basename "$f" .txt)
-            # Look for lines like: FAILED testName(className)
-            while IFS= read -r line; do
-              if [[ "$line" == *"FAILED"* ]] || [[ "$line" == *"ERROR"* ]]; then
-                FAILURES="${FAILURES}\n  - ${line}"
-              fi
-            done < "$f"
-          done
+          if [ -d "target/surefire-reports" ]; then
+            for f in target/surefire-reports/*.txt; do
+              [ -f "$f" ] || continue
+              # Grab test class name from filename
+              CLASS=$(basename "$f" .txt)
+              # Look for lines like: FAILED testName(className)
+              while IFS= read -r line; do
+                if [[ "$line" == *"FAILED"* ]] || [[ "$line" == *"ERROR"* ]]; then
+                  FAILURES="${FAILURES}  - ${line}%0A"
+                fi
+              done < "$f"
+            done
+          fi
 
           # Grab the overall summary from Maven output
-          SUMMARY=$(grep -E "Tests run:|BUILD" test-output.log | tail -5 || echo "No summary available")
+          if [ -f "test-output.log" ]; then
+            SUMMARY=$(grep -E "Tests run:|BUILD" test-output.log | tail -5 || echo "No summary available")
+          else
+            SUMMARY="No test output log found"
+          fi
 
           # Determine overall status
-          if grep -q "BUILD SUCCESS" test-output.log; then
+          if [ -f "test-output.log" ] && grep -q "BUILD SUCCESS" test-output.log; then
             echo "STATUS=success" >> $GITHUB_OUTPUT
           else
             echo "STATUS=failure" >> $GITHUB_OUTPUT
           fi
 
           # Save failures and summary for notification steps
-          echo "SUMMARY<<EOF" >> $GITHUB_OUTPUT
-          echo "$SUMMARY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "SUMMARY<<EOF"
+            echo "$SUMMARY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
           # Build failure detail block
           FAIL_DETAIL=""
-          for f in target/surefire-reports/*.txt; do
-            [ -f "$f" ] || continue
-            CLASS=$(basename "$f" .txt)
-            # Check if this class had failures
-            if grep -qE "<<< FAILURE|<<< ERROR" "$f" 2>/dev/null || grep -q "FAILED" "$f" 2>/dev/null; then
-              FAIL_DETAIL="${FAIL_DETAIL}\n--- ${CLASS} ---\n"
-              # Extract relevant failure block (test name + assertion error)
-              FAIL_DETAIL="${FAIL_DETAIL}$(grep -A 5 -E "FAILED|<<< FAILURE|<<< ERROR|AssertionError|Expected|but was" "$f" | head -30)\n"
-            fi
-          done
+          if [ -d "target/surefire-reports" ]; then
+            for f in target/surefire-reports/*.txt; do
+              [ -f "$f" ] || continue
+              CLASS=$(basename "$f" .txt)
+              # Check if this class had failures
+              if grep -qE "<<< FAILURE|<<< ERROR" "$f" 2>/dev/null || grep -q "FAILED" "$f" 2>/dev/null; then
+                FAIL_DETAIL="${FAIL_DETAIL}--- ${CLASS} ---%0A"
+                # Extract relevant failure block (test name + assertion error)
+                FAIL_DETAIL="${FAIL_DETAIL}$(grep -A 5 -E "FAILED|<<< FAILURE|<<< ERROR|AssertionError|Expected|but was" "$f" | head -30)%0A"
+              fi
+            done
+          fi
 
-          if [ -z "$FAIL_DETAIL" ] && grep -q "BUILD FAILURE" test-output.log; then
+          if [ -z "$FAIL_DETAIL" ] && [ -f "test-output.log" ] && grep -q "BUILD FAILURE" test-output.log; then
             # Fallback: grab last 40 lines of Maven output if no surefire reports found
             FAIL_DETAIL=$(tail -40 test-output.log)
           fi
 
-          echo "FAIL_DETAIL<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$FAIL_DETAIL" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "FAIL_DETAIL<<EOF"
+            echo "$FAIL_DETAIL"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Upload test reports
         if: always()
