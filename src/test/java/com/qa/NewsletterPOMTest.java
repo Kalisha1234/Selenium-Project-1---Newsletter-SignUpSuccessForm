@@ -8,11 +8,16 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import java.time.Duration;
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
+
 
 public class NewsletterPOMTest {
     private WebDriver driver;
     private NewsletterPage newsletterPage;
     private static final String BASE_URL = "https://newsletter-sign-up-form-ntes.onrender.com/";
+    //private static final Logger logger = LoggerFactory.getLogger(NewsletterPOMTest.class);
+
 
     @BeforeAll
     static void setupClass() {
