@@ -22,6 +22,7 @@ public class NewsletterUITest {
         // Use headless mode in CI, normal mode locally
         if (System.getenv("CI") != null) {
             options.addArguments("--headless");
+
         }
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
