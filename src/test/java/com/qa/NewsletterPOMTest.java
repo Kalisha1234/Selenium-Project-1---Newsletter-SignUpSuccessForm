@@ -45,7 +45,7 @@ public class NewsletterPOMTest {
         logger.info("Navigating to: {}", BASE_URL);
         driver.get(BASE_URL);
 
-        // Wait for JavaScript to fully execute
+        // Wait for page to be fully loaded
         new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(30))
                 .until(webDriver ->
                         ((JavascriptExecutor) webDriver).executeScript("return document.readyState").equals("complete")

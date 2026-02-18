@@ -46,7 +46,7 @@ public class NewsletterPage {
         // Wait for button to be clickable
         wait.until(ExpectedConditions.elementToBeClickable(subscribeButton));
 
-        // Use JavaScript click to bypass any interactability issues
+        // Use JavaScript click to bypass interactability issues
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", subscribeButton);
     }
 
