@@ -29,12 +29,23 @@ jobs:
         continue-on-error: true
 
       - name: Extract test results
-        run:  source extract.sh
+        run:  |
+            LOG_FILE="output.log"
+            ERROR_TYPE=$(grep -m 1 -oE "[a-zA-Z0-9\.]+(Error|Exception)" "$LOG_FILE")
+            EXPECTED=$(sed -n 's/.*expected: <\(.*\)> but was.*/\1/p' "$LOG_FILE")
+            ACTUAL=$(sed -n 's/.*but was: <\(.*\)>/\1/p' "$LOG_FILE")
+
+            echo "EXPECTED=$EXPECTED" >> $GITHUB_ENV
+            echo "ACTUAL=$ACTUAL" >> $GITHUB_ENV
+            echo "ERROR_TYPE=$ERROR_TYPE" >> $GITHUB_ENV
 
       - name: Use the extracted values
         run: |
-          echo "The expected value was $TEST_EXPECTED"
+          echo "The expected value was $EXPECTED"
           echo "The actual value was $ACTUAL"
+        env:
+          TEST_EXPECTED: ${{ env.EXPECTED }}
+          ACTUAL: ${{ env.ACTUAL }}
 
       - name: Upload test reports
         if: always()
@@ -65,6 +76,8 @@ jobs:
           webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEST_EXPECTED: ${{ env.EXPECTED }}
+          ACTUAL: ${{ env.ACTUAL }}
 
       - name: Send email notification
         if: always()
