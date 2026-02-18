@@ -37,11 +37,13 @@ jobs:
           ERROR_TYPE=$(grep -m 1 -oE "[a-zA-Z0-9\.]+(Error|Exception)" "$LOG_FILE" || echo "None")
           EXPECTED=$(sed -n 's/.*expected: <\(.*\)> but was.*/\1/p' "$LOG_FILE" | head -n 1 || echo "N/A")
           ACTUAL=$(sed -n 's/.*but was: <\(.*\)>/\1/p' "$LOG_FILE" | head -n 1 || echo "N/A")
+          TEST_STATUS=$(grep -m 1 -oE "Tests run: [0-9]+, Failures: [0-9]+, Errors: [0-9]+" "$LOG_FILE" || echo "No test summary found")
           
           # Push to GITHUB_ENV for use in later steps
           echo "ERROR_TYPE=$ERROR_TYPE" >> $GITHUB_ENV
           echo "EXPECTED=$EXPECTED" >> $GITHUB_ENV
           echo "ACTUAL=$ACTUAL" >> $GITHUB_ENV
+          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
 
       - name: Send Slack notification
         if: always()
@@ -51,6 +53,7 @@ jobs:
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
           text: |
             *Selenium Test Results*
+            *Test Result:*: ${ env.TEST_STATUS }
             *Status:* ${{ job.status }}
             *Error:* ${{ env.ERROR_TYPE }}
             *Expected:* `${{ env.EXPECTED }}`
