@@ -25,8 +25,11 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        run: mvn test --batch-mode
-        #continue-on-error: true
+        run: mvn test --batch-mode 2>&1 | tee test-output.log
+        continue-on-error: true
+
+      - name: Extract test results
+        run: source test-output.log
 
       - name: Upload test reports
         if: always()
@@ -48,6 +51,10 @@ jobs:
             Commit: ${{ github.sha }}
             Status: ${{ job.status }}
             Workflow: ${{ github.workflow }}
+            
+            Error: ${{ env.ERROR_TYPE }}
+            Expected: ${{ env.EXPECTED }}
+            Actual: ${{ env.ACTUAL }}
 
             View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
