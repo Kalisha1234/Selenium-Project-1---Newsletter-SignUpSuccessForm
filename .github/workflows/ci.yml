@@ -10,6 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      CI: true   # Explicitly define CI environment
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
