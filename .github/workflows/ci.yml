@@ -106,6 +106,122 @@
 #          !contains(env.TEST_STATUS, 'Errors: 0')
 #        run: exit 1
 
+#name: Selenium CI with Email and Slack
+#
+#on:
+#  push:
+#    branches: [ main ]
+#  pull_request:
+#    branches: [ main ]
+#
+#jobs:
+#  test:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Set up JDK 25
+#        uses: actions/setup-java@v4
+#        with:
+#          java-version: '25'
+#          distribution: 'temurin'
+#          cache: maven
+#
+#      - name: Build project
+#        run: mvn clean install -DskipTests --batch-mode
+#
+#      - name: Run Selenium tests
+#        run: mvn test --batch-mode 2>&1 | tee output.log
+#        continue-on-error: true
+#
+#      - name: Extract test results
+#        id: extract_results
+#        run: |
+#          LOG_FILE="output.log"
+#
+#          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No summary found")
+#
+#          FAILING_TEST=$(grep -E "<<< FAILURE!|<<< ERROR!" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
+#
+#          FAILING_FILE=$(grep -E "at com\.qa\." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "N/A")
+#
+#          FAILURE_REASON=$(grep -E "Exception|Error" "$LOG_FILE" | head -n 1 || echo "N/A")
+#
+#          if echo "$TEST_STATUS" | grep -q "Failures: 0" && echo "$TEST_STATUS" | grep -q "Errors: 0"; then
+#            BUILD_RESULT="PASSED"
+#          else
+#            BUILD_RESULT="FAILED"
+#          fi
+#
+#          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+#          echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
+#          echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
+#          echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+#          echo "BUILD_RESULT=$BUILD_RESULT" >> $GITHUB_ENV
+#
+#      - name: Send Slack notification
+#        if: always()
+#        uses: 8398a7/action-slack@v3
+#        with:
+#          status: custom
+#          fields: repo,commit,author,workflow,job,took
+#          text: |
+#            *Selenium Test Execution Result:*
+#
+#            *Build Status:* `${{ env.BUILD_RESULT }}`
+#            *Summary:* `${{ env.TEST_STATUS }}`
+#
+#            *Failing Test:* `${{ env.FAILING_TEST }}`
+#            *File/Line:* `${{ env.FAILING_FILE }}`
+#            *Reason:* `${{ env.FAILURE_REASON }}`
+#
+#            View Logs:
+#            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#        env:
+#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#
+#      - name: Send Email Notification
+#        if: always()
+#        uses: dawidd6/action-send-mail@v3
+#        with:
+#          server_address: smtp.gmail.com
+#          server_port: 465
+#          username: ${{ secrets.EMAIL_USERNAME }}
+#          password: ${{ secrets.EMAIL_PASSWORD }}
+#          subject: "Selenium Test Results - ${{ env.BUILD_RESULT }}"
+#          body: |
+#            Build Status: ${{ env.BUILD_RESULT }}
+#
+#            Summary:
+#            ${{ env.TEST_STATUS }}
+#
+#            Failing Test:
+#            ${{ env.FAILING_TEST }}
+#
+#            File/Line:
+#            ${{ env.FAILING_FILE }}
+#
+#            Reason:
+#            ${{ env.FAILURE_REASON }}
+#
+#            Full Logs:
+#            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#          to: ${{ secrets.EMAIL_TO }}
+#          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+#
+#      - name: Upload test reports
+#        if: always()
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: surefire-reports
+#          path: target/surefire-reports/
+#
+#      - name: Fail workflow if tests failed
+#        if: env.BUILD_RESULT == 'FAILED'
+#        run: exit 1
+
 name: Selenium CI with Email and Slack
 
 on:
@@ -133,6 +249,7 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
+        # Tee captures log for parsing
         run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
@@ -141,20 +258,29 @@ jobs:
         run: |
           LOG_FILE="output.log"
 
+          # Extract general test summary
           TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No summary found")
 
+          # Extract failing or error test method/class
           FAILING_TEST=$(grep -E "<<< FAILURE!|<<< ERROR!" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
 
+          # Extract the first file and line number from stack trace
           FAILING_FILE=$(grep -E "at com\.qa\." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "N/A")
 
-          FAILURE_REASON=$(grep -E "Exception|Error" "$LOG_FILE" | head -n 1 || echo "N/A")
+          # Extract first real exception message (skip "[ERROR] Tests run" lines)
+          FAILURE_REASON=$(grep -E -A1 "at com\.qa\." "$LOG_FILE" | grep -v "^\[ERROR\] Tests run" | head -n 1 || echo "N/A")
 
+          # Clean newlines and escape quotes to prevent Slack JSON errors
+          FAILURE_REASON=$(echo "$FAILURE_REASON" | tr -d '\n' | sed 's/"/\\"/g')
+
+          # Determine build result
           if echo "$TEST_STATUS" | grep -q "Failures: 0" && echo "$TEST_STATUS" | grep -q "Errors: 0"; then
             BUILD_RESULT="PASSED"
           else
             BUILD_RESULT="FAILED"
           fi
 
+          # Export environment variables for Slack/email
           echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
