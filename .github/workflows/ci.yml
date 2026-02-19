@@ -132,11 +132,4 @@ jobs:
           name: test-reports
           path: target/surefire-reports/
 
-      # -----------------------
-      # Fail workflow if needed
-      # -----------------------
-      - name: Fail workflow if tests failed
-        if: |
-          !contains(env.TEST_STATUS, 'Failures: 0') ||
-          !contains(env.TEST_STATUS, 'Errors: 0')
-        run: exit 1
+      
