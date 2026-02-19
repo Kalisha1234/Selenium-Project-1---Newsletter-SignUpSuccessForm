@@ -134,7 +134,6 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        # Using 'tee' to capture the log for parsing while still showing it in the console
         run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
@@ -143,24 +142,24 @@ jobs:
         run: |
           LOG_FILE="output.log"
 
-          # 1. Extract first failing or error test
+          # Extract first failing or error test
           FAILING_LINE=$(grep -E "<<< FAILURE!|<<< ERROR! - in" "$LOG_FILE" | head -n 1 || echo "None")
           FAILING_TEST=$(echo "$FAILING_LINE" | awk '{print $NF}')
 
-          # 2. Extract the specific file and line number from the stack trace
+          # Extract file and line number
           FAILING_FILE=$(grep -E "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
 
-          # 3. Extract reason: AssertionFailedError or Exception
+          # Extract reason
           FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*\(AssertionFailedError:\|Exception:\)//' || echo "N/A")
 
-          # 4. Extract test summary
+          # Extract test summary
           TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
 
-          # 5. Extract numbers for failures/errors for later conditional
+          # Extract numeric Failures/Errors
           FAILURES=$(echo "$TEST_STATUS" | grep -oP 'Failures: \K\d+')
           ERRORS=$(echo "$TEST_STATUS" | grep -oP 'Errors: \K\d+')
 
-          # Export variables to GitHub environment
+          # Export to GitHub environment
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
           echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
@@ -199,7 +198,7 @@ jobs:
 
             Test Details:
             - Summary: ${{ env.TEST_STATUS }}
-            - Failing Test: ${{ env.FAILING_TEST }}
+            - Failing Test: ${{ env.FAILED_TEST }}
             - File/Line: ${{ env.FAILING_FILE }}
             - Reason: ${{ env.FAILURE_REASON }}
 
@@ -217,7 +216,8 @@ jobs:
 
       - name: Fail workflow if tests failed or errored
         run: |
-          if [[ "${FAILURES}" -gt 0 || "${ERRORS}" -gt 0 ]]; then
+          echo "Failures=${{ env.FAILURES }}, Errors=${{ env.ERRORS }}"
+          if [ "${{ env.FAILURES }}" -gt 0 ] || [ "${{ env.ERRORS }}" -gt 0 ]; then
             echo "Tests failed or had errors. Failing workflow..."
             exit 1
           else
