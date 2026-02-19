@@ -10,6 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      CI: true   # Explicitly define CI environment
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,50 +28,71 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        # Using 'tee' to capture the log for parsing while still showing it in the console
         run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
+      # --------------------------------------------------------
+      # Extract real test result info (handles Errors + Failures)
+      # --------------------------------------------------------
       - name: Extract test results
         id: extract_step
         run: |
           LOG_FILE="output.log"
 
-          # 1. Extract which test is failing (e.g., com.qa.NewsletterPOMTest.testPageLoadsWithHeading)
-          FAILING_TEST=$(grep "<<< FAILURE! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
+          # Extract overall summary
+          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1)
 
-          # 2. Extract the specific file and line number from the stack trace
-          FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
+          # Extract first failing test method
+          FAILING_TEST=$(grep "<<< FAILURE!" "$LOG_FILE" | head -n 1 | awk '{print $(NF-2)}')
 
-          # 3. Extract the failure reason (Assertion message)
-          FAILURE_REASON=$(grep "AssertionFailedError:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //' || echo "N/A")
+          # If no FAILURE, check for ERROR
+          if [ -z "$FAILING_TEST" ]; then
+            FAILING_TEST=$(grep "<<< ERROR!" "$LOG_FILE" | head -n 1 | awk '{print $(NF-2)}')
+          fi
 
-          # 4. Extract the general summary (Tests run, Failures, etc.)
-          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
+          # Extract first exception type
+          FAILURE_REASON=$(grep -E "Exception|Error:" "$LOG_FILE" | head -n 1)
 
-          # Export to GITHUB_ENV for subsequent steps
+          # Extract file + line
+          FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/')
+
+          # If nothing failed
+          if echo "$TEST_STATUS" | grep -q "Failures: 0, Errors: 0"; then
+            FAILING_TEST="None"
+            FAILING_FILE="N/A"
+            FAILURE_REASON="All tests passed"
+          fi
+
+          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
           echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
-          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
 
+      # -----------------------
+      # Slack Notification
+      # -----------------------
       - name: Send Slack notification
         if: always()
         uses: 8398a7/action-slack@v3
         with:
           status: ${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
+          fields: repo,commit,author,workflow,job,took
           text: |
-            *Selenium Test Results Summary:*
-            *Status:* `${{ env.TEST_STATUS }}`
+            *Selenium Test Execution Result*
+
+            *Summary:* `${{ env.TEST_STATUS }}`
             *Failing Test:* `${{ env.FAILING_TEST }}`
-            *File/Line:* `${{ env.FAILING_FILE }}`
+            *Location:* `${{ env.FAILING_FILE }}`
             *Reason:* `${{ env.FAILURE_REASON }}`
 
-            View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Full Logs:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
+      # -----------------------
+      # Email Notification
+      # -----------------------
       - name: Send email notification
         if: always()
         uses: dawidd6/action-send-mail@v3
@@ -77,21 +101,30 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Selenium Tests  - ${{ github.repository }}"
+          subject: "Selenium Test Results - ${{ github.repository }}"
           body: |
             Build Status: ${{ job.status }}
 
-            Test Details:
-            - Summary: ${{ env.TEST_STATUS }}
-            - Failing Test: ${{ env.FAILING_TEST }}
-            - File/Line: ${{ env.FAILING_FILE }}
-            - Reason: ${{ env.FAILURE_REASON }}
+            Test Summary:
+            ${{ env.TEST_STATUS }}
 
-            You can view the full execution here:
+            Failing Test:
+            ${{ env.FAILING_TEST }}
+
+            File/Line:
+            ${{ env.FAILING_FILE }}
+
+            Reason:
+            ${{ env.FAILURE_REASON }}
+
+            View Full Execution:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
 
+      # -----------------------
+      # Upload Reports
+      # -----------------------
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,11 +132,11 @@ jobs:
           name: test-reports
           path: target/surefire-reports/
 
+      # -----------------------
+      # Fail workflow if needed
+      # -----------------------
       - name: Fail workflow if tests failed
-        # This ensures the pipeline actually shows as 'failed' in GitHub if any tests were unsuccessful
         if: |
           !contains(env.TEST_STATUS, 'Failures: 0') ||
           !contains(env.TEST_STATUS, 'Errors: 0')
         run: exit 1
-
-

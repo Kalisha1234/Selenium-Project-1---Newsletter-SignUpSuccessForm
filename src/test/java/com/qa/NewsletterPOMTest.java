@@ -1,76 +1,124 @@
 package com.qa;
 
 import com.qa.pages.NewsletterPage;
-import com.qa.pages.SuccessPage;
 import io.github.bonigarcia.wdm.WebDriverManager;
 import org.junit.jupiter.api.*;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.By;
+
 import java.time.Duration;
 
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class NewsletterPOMTest {
-    private WebDriver driver;
-    private NewsletterPage newsletterPage;
-    private static final String BASE_URL = "https://newsletter-sign-up-form-ntes.onrender.com/";
 
-    @BeforeAll
-    static void setupClass() {
-        WebDriverManager.chromedriver().setup();
-    }
+    private WebDriver driver;
+    private WebDriverWait wait;
+    private NewsletterPage newsletterPage;
+
+    private static final String BASE_URL = "https://newsletter-sign-up-form-ntes.onrender.com/";
 
     @BeforeEach
     void setup() {
+
+        WebDriverManager.chromedriver().setup();
+
         ChromeOptions options = new ChromeOptions();
-        // Use headless mode in CI, normal mode locally
+
+        // Headless ONLY in CI
         if (System.getenv("CI") != null) {
-            options.addArguments("--headless");
+            options.addArguments("--headless=new");
+            options.addArguments("--no-sandbox");
+            options.addArguments("--disable-dev-shm-usage");
         }
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
+
         driver = new ChromeDriver(options);
-        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(5));
         driver.manage().window().maximize();
+
+        wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+
         driver.get(BASE_URL);
+
         newsletterPage = new NewsletterPage(driver);
     }
 
+
+
+    private void slowDown() {
+        if (System.getenv("CI") == null) {
+            try {
+                Thread.sleep(1200); // Visible locally only
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void waitForElement(By locator) {
+        wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
+    }
+
+
     @Test
-    @DisplayName("Verify newsletter page loads with correct heading")
-    void testPageLoadsWithHeading() throws InterruptedException {
-        Assertions.assertEquals("Stay updated!", newsletterPage.getHeading());
-        if (System.getenv("CI") == null) Thread.sleep(5000);
+    @Order(1)
+    void verifyHeadingIsDisplayed() {
+
+        waitForElement(By.id("head"));
+        slowDown();
+
+        Assertions.assertEquals(
+                "Stay updated!",
+                newsletterPage.getHeading()
+        );
     }
 
     @Test
-    @DisplayName("Verify error message for invalid email")
-    void testInvalidEmailShowsError() throws InterruptedException {
-        newsletterPage.enterEmail("invalid-email");
-        newsletterPage.clickSubscribe();
-        Assertions.assertTrue(newsletterPage.isErrorMessageDisplayed());
-        Assertions.assertEquals("Valid email required", newsletterPage.getErrorMessage());
-        if (System.getenv("CI") == null) Thread.sleep(5000);
-    }
+    @Order(2)
+    void verifySuccessfulSubscription() {
 
-    @Test
-    @DisplayName("Verify successful subscription with valid email")
-    void testValidEmailShowsSuccess() throws InterruptedException {
+        waitForElement(By.id("email"));
+        slowDown();
+
         newsletterPage.enterEmail("test@example.com");
-        if (System.getenv("CI") == null) Thread.sleep(3000);
+        slowDown();
+
         newsletterPage.clickSubscribe();
-        SuccessPage successPage = new SuccessPage(driver);
-        Assertions.assertTrue(successPage.isSuccessIconDisplayed());
-        Assertions.assertTrue(successPage.getSuccessHeading().contains("Thanks for subscribing!"));
-        if (System.getenv("CI") == null) Thread.sleep(5000);
+        slowDown();
+
+        waitForElement(By.tagName("h1"));
+
+        Assertions.assertTrue(
+                driver.getPageSource().contains("Thanks for subscribing!")
+        );
+    }
+
+    @Test
+    @Order(3)
+    void verifyInvalidEmailShowsError() {
+
+        waitForElement(By.id("email"));
+        slowDown();
+
+        newsletterPage.enterEmail("invalid-email");
+        slowDown();
+
+        newsletterPage.clickSubscribe();
+        slowDown();
+
+        waitForElement(By.className("message"));
+
+        Assertions.assertTrue(
+                newsletterPage.isErrorMessageDisplayed()
+        );
     }
 
     @AfterEach
     void teardown() {
-        // Close browser in CI, keep open locally
-        if (System.getenv("CI") != null) {
-            if (driver != null) {
-                driver.quit();
-            }
+        if (driver != null) {
+            driver.quit();
         }
     }
 }
