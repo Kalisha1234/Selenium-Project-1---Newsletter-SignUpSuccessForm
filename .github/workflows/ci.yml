@@ -107,6 +107,7 @@
 #        run: exit 1
 #
 
+
 name: Selenium CI with Email and Slack
 
 on:
@@ -138,34 +139,35 @@ jobs:
         continue-on-error: true
 
       - name: Extract test results
-        id: extract_step
+        id: extract
         run: |
           LOG_FILE="output.log"
 
-          # Extract first failing or error test
-          FAILING_LINE=$(grep -E "<<< FAILURE!|<<< ERROR! - in" "$LOG_FILE" | head -n 1 || echo "None")
-          FAILING_TEST=$(echo "$FAILING_LINE" | awk '{print $NF}')
+          # Extract overall test summary
+          TEST_STATUS=$(grep -E "Tests run:.*Failures:.*Errors:.*" "$LOG_FILE" | tail -n 1)
+          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
 
-          # Extract file and line number
-          FAILING_FILE=$(grep -E "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
-
-          # Extract reason
-          FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*\(AssertionFailedError:\|Exception:\)//' || echo "N/A")
-
-          # Extract test summary
-          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
-
-          # Extract numeric Failures/Errors
+          # Extract number of failures and errors
           FAILURES=$(echo "$TEST_STATUS" | grep -oP 'Failures: \K\d+')
           ERRORS=$(echo "$TEST_STATUS" | grep -oP 'Errors: \K\d+')
+          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
+          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
 
-          # Export to GitHub environment
+          # If there are failures/errors, extract the first failing test and reason
+          if [ "$FAILURES" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
+            FAILING_LINE=$(grep -E "<<< FAILURE!|<<< ERROR! - in" "$LOG_FILE" | head -n 1)
+            FAILING_TEST=$(echo "$FAILING_LINE" | awk '{print $NF}')
+            FAILING_FILE=$(grep -E "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/')
+            FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*\(AssertionFailedError:\|Exception:\)//')
+          else
+            FAILING_TEST="None"
+            FAILING_FILE="None"
+            FAILURE_REASON="None"
+          fi
+
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
           echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
-          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
-          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
-          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
 
       - name: Send Slack notification
         if: always()
@@ -179,7 +181,6 @@ jobs:
             *Failing Test:* `${{ env.FAILING_TEST }}`
             *File/Line:* `${{ env.FAILING_FILE }}`
             *Reason:* `${{ env.FAILURE_REASON }}`
-
             View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -198,7 +199,7 @@ jobs:
 
             Test Details:
             - Summary: ${{ env.TEST_STATUS }}
-            - Failing Test: ${{ env.FAILED_TEST }}
+            - Failing Test: ${{ env.FAILING_TEST }}
             - File/Line: ${{ env.FAILING_FILE }}
             - Reason: ${{ env.FAILURE_REASON }}
 
@@ -221,5 +222,5 @@ jobs:
             echo "Tests failed or had errors. Failing workflow..."
             exit 1
           else
-            echo "All tests passed."
+            echo "All tests passed. Workflow will succeed."
           fi
