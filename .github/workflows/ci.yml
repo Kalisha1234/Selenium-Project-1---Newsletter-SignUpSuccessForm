@@ -155,16 +155,42 @@ jobs:
 
           # Only extract failure details if there are actual failures or errors
           if [ "$FAILURES" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
-            # Extract which test is failing
-            FAILING_TEST=$(grep "<<< FAILURE! - in\|<<< ERROR! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "Check logs")
+            echo "Extracting failure details..."
+          
+            # Extract which test class is failing
+            FAILING_TEST=$(grep -E "<<< FAILURE!|<<< ERROR!" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "Unknown")
+          
+            # If still empty, try to get from "Running" lines before failures
+            if [ "$FAILING_TEST" = "Unknown" ] || [ -z "$FAILING_TEST" ]; then
+              FAILING_TEST=$(grep "Tests run:" "$LOG_FILE" | grep -v "Time elapsed" | head -n 1 | awk '{print $4}' || echo "Check logs")
+            fi
           
             # Extract the specific file and line number from the stack trace
-            FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Check logs")
+            FAILING_FILE=$(grep -E "^\s*at com\.qa\." "$LOG_FILE" | head -n 1 | sed -E 's/.*\(([^)]+)\).*/\1/' || echo "Unknown")
           
-            # Extract the failure reason (Assertion message or error message)
-            FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //; s/.*Exception: //' || echo "Check logs for details")
+            # If no file found, try alternative pattern
+            if [ "$FAILING_FILE" = "Unknown" ] || [ -z "$FAILING_FILE" ]; then
+              FAILING_FILE=$(grep -oP '\(.*?\.java:\d+\)' "$LOG_FILE" | head -n 1 | tr -d '()' || echo "Check logs")
+            fi
+          
+            # Extract the failure reason - try multiple patterns
+            FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:|Error:" "$LOG_FILE" | grep -v "at com.qa" | grep -v "at org." | grep -v "at java." | head -n 1 | sed -E 's/.*Error: //; s/.*Exception: //; s/^\s+//' || echo "")
+          
+            # If still empty, try to get the error message from a different pattern
+            if [ -z "$FAILURE_REASON" ]; then
+              FAILURE_REASON=$(grep -A 2 -E "<<< FAILURE!|<<< ERROR!" "$LOG_FILE" | grep -v "<<<" | grep -v "^--$" | head -n 1 | sed 's/^\s*//' || echo "Check full logs for error details")
+            fi
+          
+            # If still empty, provide a helpful default
+            if [ -z "$FAILURE_REASON" ]; then
+              FAILURE_REASON="Error details not captured - check full logs"
+            fi
           
             BUILD_RESULT="failure"
+          
+            echo "FAILING_TEST: $FAILING_TEST"
+            echo "FAILING_FILE: $FAILING_FILE"
+            echo "FAILURE_REASON: $FAILURE_REASON"
           else
             FAILING_TEST="N/A - All tests passed"
             FAILING_FILE="N/A"
@@ -173,13 +199,27 @@ jobs:
           fi
 
           # Export to GITHUB_ENV for subsequent steps
-          echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
-          echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
-          echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
-          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
-          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
-          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
-          echo "BUILD_RESULT=$BUILD_RESULT" >> $GITHUB_ENV
+          {
+            echo "FAILING_TEST=$FAILING_TEST"
+            echo "FAILING_FILE=$FAILING_FILE"
+            echo "FAILURE_REASON<<EOF"
+            echo "$FAILURE_REASON"
+            echo "EOF"
+            echo "TEST_STATUS=$TEST_STATUS"
+            echo "FAILURES=$FAILURES"
+            echo "ERRORS=$ERRORS"
+            echo "BUILD_RESULT=$BUILD_RESULT"
+          } >> $GITHUB_ENV
+
+      - name: Debug - Show extracted values
+        if: always()
+        run: |
+          echo "=== Extracted Values ==="
+          echo "BUILD_RESULT: ${{ env.BUILD_RESULT }}"
+          echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
+          echo "FAILING_TEST: ${{ env.FAILING_TEST }}"
+          echo "FAILING_FILE: ${{ env.FAILING_FILE }}"
+          echo "FAILURE_REASON: ${{ env.FAILURE_REASON }}"
 
       - name: Send Slack notification
         if: always()
@@ -228,6 +268,13 @@ jobs:
         with:
           name: test-reports
           path: target/surefire-reports/
+
+      - name: Upload output log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-output
+          path: output.log
 
       - name: Fail workflow if tests failed
         run: |
