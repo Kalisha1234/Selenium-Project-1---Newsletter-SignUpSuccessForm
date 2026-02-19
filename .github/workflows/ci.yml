@@ -106,8 +106,7 @@
 #          !contains(env.TEST_STATUS, 'Errors: 0')
 #        run: exit 1
 #
-
-
+#
 name: Selenium CI with Email and Slack
 
 on:
@@ -139,35 +138,48 @@ jobs:
         continue-on-error: true
 
       - name: Extract test results
-        id: extract
+        id: extract_step
         run: |
           LOG_FILE="output.log"
 
-          # Extract overall test summary
-          TEST_STATUS=$(grep -E "Tests run:.*Failures:.*Errors:.*" "$LOG_FILE" | tail -n 1)
-          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+          # Extract the general summary (Tests run, Failures, etc.)
+          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
 
-          # Extract number of failures and errors
-          FAILURES=$(echo "$TEST_STATUS" | grep -oP 'Failures: \K\d+')
-          ERRORS=$(echo "$TEST_STATUS" | grep -oP 'Errors: \K\d+')
-          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
-          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+          # Extract failure and error counts
+          FAILURES=$(echo "$TEST_STATUS" | grep -oP 'Failures: \K\d+' || echo "0")
+          ERRORS=$(echo "$TEST_STATUS" | grep -oP 'Errors: \K\d+' || echo "0")
 
-          # If there are failures/errors, extract the first failing test and reason
+          echo "STATUS: $TEST_STATUS"
+          echo "FAILURES: $FAILURES"
+          echo "ERRORS: $ERRORS"
+
+          # Only extract failure details if there are actual failures or errors
           if [ "$FAILURES" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
-            FAILING_LINE=$(grep -E "<<< FAILURE!|<<< ERROR! - in" "$LOG_FILE" | head -n 1)
-            FAILING_TEST=$(echo "$FAILING_LINE" | awk '{print $NF}')
-            FAILING_FILE=$(grep -E "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/')
-            FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*\(AssertionFailedError:\|Exception:\)//')
+            # Extract which test is failing
+            FAILING_TEST=$(grep "<<< FAILURE! - in\|<<< ERROR! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "Check logs")
+          
+            # Extract the specific file and line number from the stack trace
+            FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Check logs")
+          
+            # Extract the failure reason (Assertion message or error message)
+            FAILURE_REASON=$(grep -E "AssertionFailedError:|Exception:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //; s/.*Exception: //' || echo "Check logs for details")
+          
+            BUILD_RESULT="failure"
           else
-            FAILING_TEST="None"
-            FAILING_FILE="None"
-            FAILURE_REASON="None"
+            FAILING_TEST="N/A - All tests passed"
+            FAILING_FILE="N/A"
+            FAILURE_REASON="N/A"
+            BUILD_RESULT="success"
           fi
 
+          # Export to GITHUB_ENV for subsequent steps
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
           echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
+          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+          echo "BUILD_RESULT=$BUILD_RESULT" >> $GITHUB_ENV
 
       - name: Send Slack notification
         if: always()
@@ -177,10 +189,12 @@ jobs:
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
           text: |
             *Selenium Test Results Summary:*
+            *Build Result:* `${{ env.BUILD_RESULT }}`
             *Status:* `${{ env.TEST_STATUS }}`
             *Failing Test:* `${{ env.FAILING_TEST }}`
             *File/Line:* `${{ env.FAILING_FILE }}`
             *Reason:* `${{ env.FAILURE_REASON }}`
+
             View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -193,9 +207,9 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Selenium Tests - ${{ github.repository }}"
+          subject: "Selenium Tests - ${{ env.BUILD_RESULT }} - ${{ github.repository }}"
           body: |
-            Build Status: ${{ job.status }}
+            Build Status: ${{ env.BUILD_RESULT }}
 
             Test Details:
             - Summary: ${{ env.TEST_STATUS }}
@@ -215,7 +229,7 @@ jobs:
           name: test-reports
           path: target/surefire-reports/
 
-      - name: Fail workflow if tests failed or errored
+      - name: Fail workflow if tests failed
         run: |
           echo "Failures=${{ env.FAILURES }}, Errors=${{ env.ERRORS }}"
           if [ "${{ env.FAILURES }}" -gt 0 ] || [ "${{ env.ERRORS }}" -gt 0 ]; then
