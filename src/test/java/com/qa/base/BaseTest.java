@@ -57,7 +57,7 @@ public class BaseTest {
     protected void pause(int milliseconds) {
         if (System.getenv("CI") == null) {
             try {
-                Thread.sleep(milliseconds);
+                Thread.sleep(2000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("Thread was interrupted", e);
