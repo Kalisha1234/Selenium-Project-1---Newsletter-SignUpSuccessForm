@@ -76,7 +76,7 @@ public class NewsletterPOMTest extends BaseTest {
     void testSuccessMessageDisplays() {
         pause(500);
 
-        newsletterPage.subscribeWithEmail("success@example.com");
+        newsletterPage.subscribeWithEmail("successexample.com");
         pause(2000);
 
         boolean successMessage = successPage.verifySuccessMessage("Thanks for subscribing");
