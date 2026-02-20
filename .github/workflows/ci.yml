@@ -1,3 +1,110 @@
+#name: Selenium CI with Email and Slack
+#
+#on:
+#  push:
+#    branches: [ main ]
+#  pull_request:
+#    branches: [ main ]
+#
+#jobs:
+#  test:
+#    runs-on: ubuntu-latest
+#
+#    env:
+#      CI: true   # Explicitly define CI environment
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Set up JDK 25
+#        uses: actions/setup-java@v4
+#        with:
+#          java-version: '25'
+#          distribution: 'temurin'
+#          cache: maven
+#
+#      - name: Install dependencies
+#        run: mvn clean install -DskipTests --batch-mode
+#
+#      - name: Run Selenium tests
+#        # Using 'tee' to capture the log for parsing while still showing it in the console
+#        run: mvn test --batch-mode 2>&1 | tee output.log
+#        continue-on-error: true
+#
+#      - name: Extract test results
+#        id: extract_step
+#        run: |
+#          LOG_FILE="output.log"
+#
+#          # 1. Extract which test is failing (e.g., com.qa.NewsletterPOMTest.testPageLoadsWithHeading)
+#          FAILING_TEST=$(grep "<<< FAILURE! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
+#
+#          # 2. Extract the specific file and line number from the stack trace
+#          FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
+#
+#          # 3. Extract the failure reason (Assertion message)
+#          FAILURE_REASON=$(grep "AssertionFailedError:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //' || echo "N/A")
+#
+#          # 4. Extract the general summary (Tests run, Failures, etc.)
+#          TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
+#
+#          # Export to GITHUB_ENV for subsequent steps
+#          echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
+#          echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
+#          echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+#          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+#
+#      - name: Send Slack notification
+#        if: always()
+#        uses: 8398a7/action-slack@v3
+#        with:
+#          status: ${{ job.status }}
+#          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
+#          text: |
+#            *Selenium Test Results Summary:*
+#            *Status:* `${{ env.TEST_STATUS }}`
+#            *Failing Test:* `${{ env.FAILING_TEST }}`
+#            *File/Line:* `${{ env.FAILING_FILE }}`
+#            *Reason:* `${{ env.FAILURE_REASON }}`
+#
+#            View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#        env:
+#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#
+#      - name: Send email notification
+#        if: always()
+#        uses: dawidd6/action-send-mail@v3
+#        with:
+#          server_address: smtp.gmail.com
+#          server_port: 465
+#          username: ${{ secrets.EMAIL_USERNAME }}
+#          password: ${{ secrets.EMAIL_PASSWORD }}
+#          subject: "Selenium Tests  - ${{ github.repository }}"
+#          body: |
+#            Build Status: ${{ job.status }}
+#
+#            Test Details:
+#            - Summary: ${{ env.TEST_STATUS }}
+#            - Failing Test: ${{ env.FAILING_TEST }}
+#            - File/Line: ${{ env.FAILING_FILE }}
+#            - Reason: ${{ env.FAILURE_REASON }}
+#
+#            You can view the full execution here:
+#            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#          to: ${{ secrets.EMAIL_TO }}
+#          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+#
+#      - name: Upload test reports
+#        if: always()
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: test-reports
+#          path: target/surefire-reports/
+#
+#
+#
+#
 name: Selenium CI with Email and Slack
 
 on:
@@ -28,7 +135,6 @@ jobs:
         run: mvn clean install -DskipTests --batch-mode
 
       - name: Run Selenium tests
-        # Using 'tee' to capture the log for parsing while still showing it in the console
         run: mvn test --batch-mode 2>&1 | tee output.log
         continue-on-error: true
 
@@ -37,40 +143,299 @@ jobs:
         run: |
           LOG_FILE="output.log"
 
-          # 1. Extract which test is failing (e.g., com.qa.NewsletterPOMTest.testPageLoadsWithHeading)
+          # Extract test results
           FAILING_TEST=$(grep "<<< FAILURE! - in" "$LOG_FILE" | head -n 1 | awk '{print $NF}' || echo "None")
-
-          # 2. Extract the specific file and line number from the stack trace
           FAILING_FILE=$(grep "at com.qa." "$LOG_FILE" | head -n 1 | sed 's/.*(\(.*\))/\1/' || echo "Unknown")
-
-          # 3. Extract the failure reason (Assertion message)
           FAILURE_REASON=$(grep "AssertionFailedError:" "$LOG_FILE" | head -n 1 | sed 's/.*AssertionFailedError: //' || echo "N/A")
-
-          # 4. Extract the general summary (Tests run, Failures, etc.)
           TEST_STATUS=$(grep "Tests run:" "$LOG_FILE" | tail -n 1 || echo "No test summary found")
 
-          # Export to GITHUB_ENV for subsequent steps
+          # Parse individual counts
+          TESTS_RUN=$(echo "$TEST_STATUS" | grep -oP 'Tests run: \K\d+' || echo "0")
+          FAILURES=$(echo "$TEST_STATUS" | grep -oP 'Failures: \K\d+' || echo "0")
+          ERRORS=$(echo "$TEST_STATUS" | grep -oP 'Errors: \K\d+' || echo "0")
+          SKIPPED=$(echo "$TEST_STATUS" | grep -oP 'Skipped: \K\d+' || echo "0")
+          PASSED=$((TESTS_RUN - FAILURES - ERRORS))
+
+          # Determine build status
+          if [ "$FAILURES" -eq 0 ] && [ "$ERRORS" -eq 0 ]; then
+            BUILD_STATUS="success"
+          else
+            BUILD_STATUS="failure"
+          fi
+
+          # Export to GITHUB_ENV
           echo "FAILING_TEST=$FAILING_TEST" >> $GITHUB_ENV
           echo "FAILING_FILE=$FAILING_FILE" >> $GITHUB_ENV
           echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
           echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+          echo "TESTS_RUN=$TESTS_RUN" >> $GITHUB_ENV
+          echo "FAILURES=$FAILURES" >> $GITHUB_ENV
+          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+          echo "SKIPPED=$SKIPPED" >> $GITHUB_ENV
+          echo "PASSED=$PASSED" >> $GITHUB_ENV
+          echo "BUILD_STATUS=$BUILD_STATUS" >> $GITHUB_ENV
+
+      - name: Generate HTML Email
+        if: always()
+        run: |
+          if [ "${{ env.BUILD_STATUS }}" == "success" ]; then
+            cat > email.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+                  <tr>
+                      <td align="center">
+                          <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                              <tr>
+                                  <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px 40px; text-align: center;">
+                                      <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">✅ Build Successful</h1>
+                                      <p style="margin: 10px 0 0 0; color: #e8e8ff; font-size: 14px;">All tests passed successfully</p>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 30px 40px; border-bottom: 1px solid #e5e5e5;">
+                                      <p style="margin: 0 0 10px 0; color: #666666; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Repository</p>
+                                      <p style="margin: 0; color: #1a1a1a; font-size: 16px; font-weight: 500;">REPO_NAME</p>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 30px 40px;">
+                                      <h2 style="margin: 0 0 20px 0; color: #1a1a1a; font-size: 18px; font-weight: 600;">Test Summary</h2>
+                                      <table width="100%" cellpadding="0" cellspacing="0">
+                                          <tr>
+                                              <td style="width: 50%; padding: 15px; background-color: #f0fdf4; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #166534; font-size: 12px; text-transform: uppercase; font-weight: 600;">Tests Run</p>
+                                                  <p style="margin: 0; color: #15803d; font-size: 28px; font-weight: 700;">TESTS_RUN</p>
+                                              </td>
+                                              <td style="width: 10px;"></td>
+                                              <td style="width: 50%; padding: 15px; background-color: #f0fdf4; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #166534; font-size: 12px; text-transform: uppercase; font-weight: 600;">Passed</p>
+                                                  <p style="margin: 0; color: #15803d; font-size: 28px; font-weight: 700;">PASSED</p>
+                                              </td>
+                                          </tr>
+                                          <tr><td colspan="3" style="height: 10px;"></td></tr>
+                                          <tr>
+                                              <td style="width: 50%; padding: 15px; background-color: #fef2f2; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #991b1b; font-size: 12px; text-transform: uppercase; font-weight: 600;">Failures</p>
+                                                  <p style="margin: 0; color: #dc2626; font-size: 28px; font-weight: 700;">FAILURES</p>
+                                              </td>
+                                              <td style="width: 10px;"></td>
+                                              <td style="width: 50%; padding: 15px; background-color: #fef3c7; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #92400e; font-size: 12px; text-transform: uppercase; font-weight: 600;">Skipped</p>
+                                                  <p style="margin: 0; color: #d97706; font-size: 28px; font-weight: 700;">SKIPPED</p>
+                                              </td>
+                                          </tr>
+                                      </table>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 0 40px 30px 40px; text-align: center;">
+                                      <a href="ACTION_URL" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">View Full Execution</a>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="background-color: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e5e5;">
+                                      <p style="margin: 0; color: #6b7280; font-size: 12px;">GitHub Actions • Automated Test Report</p>
+                                  </td>
+                              </tr>
+                          </table>
+                      </td>
+                  </tr>
+              </table>
+          </body>
+          </html>
+          EOF
+          else
+            cat > email.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+                  <tr>
+                      <td align="center">
+                          <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                              <tr>
+                                  <td style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px 40px; text-align: center;">
+                                      <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">❌ Build Failed</h1>
+                                      <p style="margin: 10px 0 0 0; color: #ffe5e5; font-size: 14px;">Some tests did not pass</p>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 30px 40px; border-bottom: 1px solid #e5e5e5;">
+                                      <p style="margin: 0 0 10px 0; color: #666666; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Repository</p>
+                                      <p style="margin: 0; color: #1a1a1a; font-size: 16px; font-weight: 500;">REPO_NAME</p>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 30px 40px;">
+                                      <h2 style="margin: 0 0 20px 0; color: #1a1a1a; font-size: 18px; font-weight: 600;">Test Summary</h2>
+                                      <table width="100%" cellpadding="0" cellspacing="0">
+                                          <tr>
+                                              <td style="width: 50%; padding: 15px; background-color: #f9fafb; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #4b5563; font-size: 12px; text-transform: uppercase; font-weight: 600;">Tests Run</p>
+                                                  <p style="margin: 0; color: #1f2937; font-size: 28px; font-weight: 700;">TESTS_RUN</p>
+                                              </td>
+                                              <td style="width: 10px;"></td>
+                                              <td style="width: 50%; padding: 15px; background-color: #f0fdf4; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #166534; font-size: 12px; text-transform: uppercase; font-weight: 600;">Passed</p>
+                                                  <p style="margin: 0; color: #15803d; font-size: 28px; font-weight: 700;">PASSED</p>
+                                              </td>
+                                          </tr>
+                                          <tr><td colspan="3" style="height: 10px;"></td></tr>
+                                          <tr>
+                                              <td style="width: 50%; padding: 15px; background-color: #fef2f2; border-radius: 6px; border: 2px solid #dc2626;">
+                                                  <p style="margin: 0 0 5px 0; color: #991b1b; font-size: 12px; text-transform: uppercase; font-weight: 600;">Failures</p>
+                                                  <p style="margin: 0; color: #dc2626; font-size: 28px; font-weight: 700;">FAILURES</p>
+                                              </td>
+                                              <td style="width: 10px;"></td>
+                                              <td style="width: 50%; padding: 15px; background-color: #fef3c7; border-radius: 6px;">
+                                                  <p style="margin: 0 0 5px 0; color: #92400e; font-size: 12px; text-transform: uppercase; font-weight: 600;">Skipped</p>
+                                                  <p style="margin: 0; color: #d97706; font-size: 28px; font-weight: 700;">SKIPPED</p>
+                                              </td>
+                                          </tr>
+                                      </table>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 0 40px 30px 40px;">
+                                      <h3 style="margin: 0 0 15px 0; color: #dc2626; font-size: 16px; font-weight: 600;">Failed Tests</h3>
+                                      <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; border-radius: 4px;">
+                                          <p style="margin: 0 0 5px 0; color: #1a1a1a; font-size: 14px; font-weight: 600;">FAILING_TEST</p>
+                                          <p style="margin: 0; color: #666666; font-size: 12px;">FAILING_FILE</p>
+                                          <p style="margin: 8px 0 0 0; color: #991b1b; font-size: 13px;">FAILURE_REASON</p>
+                                      </div>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="padding: 0 40px 30px 40px; text-align: center;">
+                                      <a href="ACTION_URL" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);">View Full Execution</a>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td style="background-color: #f9fafb; padding: 20px 40px; text-align: center; border-top: 1px solid #e5e5e5;">
+                                      <p style="margin: 0; color: #6b7280; font-size: 12px;">GitHub Actions • Automated Test Report</p>
+                                  </td>
+                              </tr>
+                          </table>
+                      </td>
+                  </tr>
+              </table>
+          </body>
+          </html>
+          EOF
+          fi
+
+          # Replace placeholders
+          sed -i "s|REPO_NAME|${{ github.repository }}|g" email.html
+          sed -i "s|TESTS_RUN|${{ env.TESTS_RUN }}|g" email.html
+          sed -i "s|PASSED|${{ env.PASSED }}|g" email.html
+          sed -i "s|FAILURES|${{ env.FAILURES }}|g" email.html
+          sed -i "s|SKIPPED|${{ env.SKIPPED }}|g" email.html
+          sed -i "s|ACTION_URL|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|g" email.html
+          sed -i "s|FAILING_TEST|${{ env.FAILING_TEST }}|g" email.html
+          sed -i "s|FAILING_FILE|${{ env.FAILING_FILE }}|g" email.html
+          sed -i "s|FAILURE_REASON|${{ env.FAILURE_REASON }}|g" email.html
 
       - name: Send Slack notification
         if: always()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
-          text: |
-            *Selenium Test Results Summary:*
-            *Status:* `${{ env.TEST_STATUS }}`
-            *Failing Test:* `${{ env.FAILING_TEST }}`
-            *File/Line:* `${{ env.FAILING_FILE }}`
-            *Reason:* `${{ env.FAILURE_REASON }}`
+        run: |
+          if [ "${{ env.BUILD_STATUS }}" == "success" ]; then
+            COLOR="#10b981"
+            STATUS_EMOJI=":white_check_mark:"
+            STATUS_TEXT="Build Successful"
+          else
+            COLOR="#ef4444"
+            STATUS_EMOJI=":x:"
+            STATUS_TEXT="Build Failed"
+          fi
 
-            View Full Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "attachments": [
+              {
+                "color": "'"$COLOR"'",
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "'"$STATUS_EMOJI"' '"$STATUS_TEXT"'",
+                      "emoji": true
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Repository:*\n${{ github.repository }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Branch:*\n${{ github.ref_name }}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "divider"
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Test Summary*"
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Tests Run:* '"${{ env.TESTS_RUN }}"'"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Passed:* '"${{ env.PASSED }}"'"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Failures:* '"${{ env.FAILURES }}"'"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Skipped:* '"${{ env.SKIPPED }}"'"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "actions",
+                    "elements": [
+                      {
+                        "type": "button",
+                        "text": {
+                          "type": "plain_text",
+                          "text": "View Full Execution",
+                          "emoji": true
+                        },
+                        "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "style": "primary"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }'
 
       - name: Send email notification
         if: always()
@@ -80,18 +445,8 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Selenium Tests  - ${{ github.repository }}"
-          body: |
-            Build Status: ${{ job.status }}
-
-            Test Details:
-            - Summary: ${{ env.TEST_STATUS }}
-            - Failing Test: ${{ env.FAILING_TEST }}
-            - File/Line: ${{ env.FAILING_FILE }}
-            - Reason: ${{ env.FAILURE_REASON }}
-
-            You can view the full execution here:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          subject: "${{ env.BUILD_STATUS == 'success' && '✅' || '❌' }} Selenium Tests - ${{ github.repository }}"
+          html_body: file://email.html
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
 
@@ -101,7 +456,3 @@ jobs:
         with:
           name: test-reports
           path: target/surefire-reports/
-
-
-
-
